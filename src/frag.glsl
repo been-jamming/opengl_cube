@@ -4,6 +4,8 @@
 
 out vec4 FragColor;
 in vec3 model_coords;
+in vec3 model_normal;
+in vec3 world_coords;
 in vec3 normal;
 
 uniform vec3 sticker_colors[6];
@@ -30,5 +32,8 @@ vec3 get_color(){
 }
 
 void main(void){
-	gl_FragColor = vec4((0.1 + 0.9*abs(dot(normal, vec3(0.0, 0.0, -1.0))))*get_color(), 1.0);
+	vec3 corrected_normal;
+
+	corrected_normal = dot(model_coords, model_normal) < 0 ? -normal : normal;
+	gl_FragColor = vec4((max(0.5*dot(corrected_normal, vec3(0.3, 0.0, -1.0)), 0.0) + 6.0/(0.1 + dot(world_coords, world_coords)))*get_color(), 1.0);
 }

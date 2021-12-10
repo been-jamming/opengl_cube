@@ -8,7 +8,9 @@ uniform vec2 resolution;
 uniform float fov_const;
 
 out vec3 model_coords;
+out vec3 model_normal;
 out vec3 normal;
+out vec3 world_coords;
 
 vec4 inverse_orientation(vec4 orientation){
 	return vec4(orientation.x, -orientation.yzw);
@@ -31,8 +33,10 @@ vec4 screen_space(vec3 p){
 }
 
 void main(){
-	model_coords = aPos, aPos.z;
+	model_coords = aPos;
 	gl_Position = screen_space(apply_orientation(aPos, model_orientation) + model_position);
+	world_coords = gl_Position.xyz;
 	normal = normalize(apply_orientation(a_norm, model_orientation));
+	model_normal = a_norm;
 }
 
