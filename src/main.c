@@ -9,6 +9,8 @@
 #include "../tga.h"
 #include "../menu.h"
 
+int get_cubie_focus(double screen_x, double screen_y, float *best_norm_x, float *best_norm_y, float *best_norm_z);
+
 //Vertices for cube model with normal vectors
 float cube_vertices[] = {
 	-1.0, -1.0, -1.0, 0.0, 0.0, -1.0,
@@ -164,6 +166,8 @@ float side_axes[6][3] = {
 	{0, -1, 0}
 };
 
+int animation_reversed[6] = {-1, 1, -1, 1, -1, 1};
+
 struct orientation{
 	float x;
 	float y;
@@ -183,15 +187,24 @@ int modelPositionLocation;
 int modelOrientationLocation;
 int fovconstLocation;
 int stickerColorsLocation;
+int backColorLocation;
 int resolution_x;
 int resolution_y;
+int cubie_focused = 0;
+float cubie_focus_norm_x = 0;
+float cubie_focus_norm_y = 0;
+float cubie_focus_norm_z = 0;
 double last_x_pos = 0.0;
 double last_y_pos = 0.0;
 float current_time;
 float animation_start_time = 0;
-unsigned char animating = 1;
+unsigned char animating = 0;
 unsigned char animation_side = 4;
 unsigned char animation_direction = 1;
+unsigned char left_clicking = 0;
+float mouse_origin_x;
+float mouse_origin_y;
+int focused_side = -1;
 char *vertex_shader_source;
 char *fragment_shader_source;
 GLFWwindow *window;
@@ -320,6 +333,18 @@ void framebuffer_size_callback(GLFWwindow *window, int width, int height){
 	resolution_y = height;
 }
 
+void screen_space(float x, float y, float z, float *screen_x, float *screen_y){
+	float min_side;
+
+	if(resolution_x < resolution_y){
+		min_side = resolution_x;
+	} else {
+		min_side = resolution_y;
+	}
+	*screen_x = x*min_side/(resolution_x*z);
+	*screen_y = y*min_side/(resolution_y*z);
+}
+
 void process_input(GLFWwindow *window){
 	double x_pos;
 	double y_pos;
@@ -328,12 +353,22 @@ void process_input(GLFWwindow *window){
 	struct orientation orient_x;
 	struct orientation orient_y;
 	int mouse_state;
+	int i;
+	int j;
+	struct orientation point;
+	float focus_axis_x;
+	float focus_axis_y;
+	float length;
+	float mouse_screen_x;
+	float mouse_screen_y;
+	float cross;
 
 	if(glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS){
 		glfwSetWindowShouldClose(window, true);
 	}
 	glfwGetCursorPos(window, &x_pos, &y_pos);
-	mouse_state = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT);
+	cubie_focused = get_cubie_focus(x_pos, y_pos, &cubie_focus_norm_x, &cubie_focus_norm_y, &cubie_focus_norm_z);
+	mouse_state = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_RIGHT);
 	if(mouse_state == GLFW_PRESS && (x_pos != last_x_pos || y_pos != last_y_pos)){
 		x_diff = x_pos - last_x_pos;
 		y_diff = y_pos - last_y_pos;
@@ -343,19 +378,141 @@ void process_input(GLFWwindow *window){
 		camera_orientation = compose_orientation(orient_y, camera_orientation);
 		camera_orientation = normalize_orientation(camera_orientation);
 	}
+	mouse_state = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT);
+	if(mouse_state == GLFW_PRESS && (left_clicking || !animating)){
+		if(!left_clicking){
+			for(i = 0; i < 6; i++){
+				for(j = 0; j < 4; j++){
+					if(sides_edges[i][j] == cubie_focused && fabs(side_axes[i][0]*cubie_focus_norm_x + side_axes[i][1]*cubie_focus_norm_y + side_axes[i][2]*cubie_focus_norm_z) < 0.5){
+						focused_side = i;
+						break;
+					}
+				}
+				if(focused_side != -1){
+					break;
+				}
+			}
+		}
+		if(focused_side != -1){
+			animating = 1;
+			animation_side = focused_side;
+			point = (struct orientation) {.x = 0, .y = side_axes[focused_side][0], .z = side_axes[focused_side][1], .w = side_axes[focused_side][2]};
+			point = apply_orientation(camera_orientation, point);
+			screen_space(point.y, point.z, point.w, &focus_axis_x, &focus_axis_y);
+			focus_axis_y *= -1;
+			length = sqrt(focus_axis_x*focus_axis_x + focus_axis_y*focus_axis_y);
+			if(length > 0){
+				focus_axis_x /= length;
+				focus_axis_y /= length;
+			} else {
+				focus_axis_x = 1;
+				focus_axis_y = 0;
+			}
+			mouse_screen_x = 2*x_pos/resolution_x - 1;
+			mouse_screen_y = 2*y_pos/resolution_y - 1;
+			if(resolution_x < resolution_y){
+				mouse_screen_y *= resolution_y/resolution_x;
+			} else {
+				mouse_screen_x *= resolution_x/resolution_y;
+			}
+			if(!left_clicking){
+				mouse_origin_x = mouse_screen_x;
+				mouse_origin_y = mouse_screen_y;
+			}
+			cross = focus_axis_x*(mouse_screen_y - mouse_origin_y) - focus_axis_y*(mouse_screen_x - mouse_origin_x);
+			if(point.w < 0){
+				cross = -cross;
+			}
+			cross *= animation_reversed[animation_side];
+			if(cross > 3.14/4){
+				cross = 3.14/4;
+			}
+			if(cross < -3.14/4){
+				cross = -3.14/4;
+			}
+			if(cross < 0){
+				animation_direction = 1;
+				animation_start_time = current_time + cross;
+			} else if(cross > 0){
+				animation_direction = 0;
+				animation_start_time = current_time - cross;
+			} else {
+				animation_direction = 0;
+				animation_start_time = current_time;
+			}
+		}
+		left_clicking = 1;
+	} else if(mouse_state != GLFW_PRESS && left_clicking){
+		left_clicking = 0;
+		focused_side = -1;
+	}
 	last_x_pos = x_pos;
 	last_y_pos = y_pos;
 }
 
-void render_cubie(float pos_x, float pos_y, float pos_z, float orient_x, float orient_y, float orient_z, float orient_w, float *colors){
+void render_cubie(float pos_x, float pos_y, float pos_z, float orient_x, float orient_y, float orient_z, float orient_w, float *colors, int focused){
 	glUseProgram(shaderProgram);
 	glUniform2f(resolutionLocation, resolution_x, resolution_y);
 	glUniform3f(modelPositionLocation, pos_x, pos_y, pos_z);
 	glUniform4f(modelOrientationLocation, orient_x, orient_y, orient_z, orient_w);
 	glUniform1f(fovconstLocation, 1.0);
 	glUniform3fv(stickerColorsLocation, 6, colors);
+	if(focused){
+		glUniform3f(backColorLocation, 0.2, 0.2, 0.2);
+	} else {
+		glUniform3f(backColorLocation, 0.05, 0.05, 0.05);
+	}
 	glBindVertexArray(cube_VAO);
 	glDrawArrays(GL_TRIANGLES, 0, 36);
+}
+
+void get_pixel_position(double screen_x, double screen_y, float *x, float *y, float *z){
+	float norm_depth;
+	float res_min;
+
+	screen_y = resolution_y - screen_y;
+	if(resolution_y < resolution_x){
+		res_min = resolution_y;
+	} else {
+		res_min = resolution_x;
+	}
+
+	glReadPixels(screen_x, screen_y, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &norm_depth);
+	norm_depth = 2*norm_depth - 1;
+	screen_x = 2*screen_x - resolution_x;
+	screen_y = 2*screen_y - resolution_y;
+	*z = 2/(1 - norm_depth);
+	*x = screen_x*(*z)/res_min;
+	*y = screen_y*(*z)/res_min;
+}
+
+float cube_distance(float x, float y, float z, float *norm_x, float *norm_y, float *norm_z){
+	float dx;
+	float dy;
+	float dz;
+
+	dx = fabs(x) - 1.0;
+	dy = fabs(y) - 1.0;
+	dz = fabs(z) - 1.0;
+	dx = dx < 0.0 ? 0.0 : dx;
+	dy = dy < 0.0 ? 0.0 : dy;
+	dz = dz < 0.0 ? 0.0 : dz;
+
+	if(fabs(x) > fabs(y) && fabs(x) > fabs(z)){
+		*norm_x = x > 0 ? 1 : -1;
+		*norm_y = 0;
+		*norm_z = 0;
+	} else if(fabs(y) > fabs(x) && fabs(y) > fabs(z)){
+		*norm_x = 0;
+		*norm_y = y > 0 ? 1 : -1;
+		*norm_z = 0;
+	} else if(fabs(z) > fabs(x) && fabs(z) > fabs(y)){
+		*norm_x = 0;
+		*norm_y = 0;
+		*norm_z = z > 0 ? 1 : -1;
+	}
+
+	return sqrt(dx*dx + dy*dy + dz*dz);
 }
 
 unsigned char on_side(int cubie, int side){
@@ -377,12 +534,18 @@ void render_cube(){
 	struct orientation orient;
 	float colors[18];
 
+	if(animating && current_time - animation_start_time > 3.14159/4 && !left_clicking){
+		twist(animation_side, animation_direction);
+		animating = 0;
+	}
+	/*
 	if(animating && current_time - animation_start_time > 3.14159/4){
 		twist(animation_side, animation_direction);
 		animation_start_time = current_time;
 		animation_side = rand()%6;
 		animation_direction = rand()&1;
 	}
+	*/
 
 	for(i = 0; i < 26; i++){
 		point = (struct orientation) {.x = 0, .y = cubie_positions[3*i], .z = cubie_positions[3*i + 1], .w = cubie_positions[3*i + 2]};
@@ -404,8 +567,48 @@ void render_cube(){
 				colors[j*3 + 2] = sticker_colors[(5 - stickers[i][5 - j])*3 + 2];
 			}
 		}
-		render_cubie(point.y, point.z, point.w + 10, orient.x, orient.y, orient.z, orient.w, colors);
+		render_cubie(point.y, point.z, point.w + 10, orient.x, orient.y, orient.z, orient.w, colors, i == cubie_focused && !animating);
 	}
+}
+
+int get_cubie_focus(double screen_x, double screen_y, float *best_norm_x, float *best_norm_y, float *best_norm_z){
+	int output;
+	float x;
+	float y;
+	float z;
+	float norm_x;
+	float norm_y;
+	float norm_z;
+	float dist;
+	float best_dist;
+	struct orientation point;
+	struct orientation model_point;
+	int i;
+
+	get_pixel_position(screen_x, screen_y, &x, &y, &z);
+	if(z > 100.0){
+		*best_norm_x = cubie_focus_norm_x;
+		*best_norm_y = cubie_focus_norm_y;
+		*best_norm_z = cubie_focus_norm_z;
+		return cubie_focused;
+	}
+	z -= 10;
+	for(i = 0; i < 26; i++){
+		model_point = (struct orientation) {.x = 0, .y = cubie_positions[3*i], .z = cubie_positions[3*i + 1], .w = cubie_positions[3*i + 2]};
+		model_point = apply_orientation(camera_orientation, model_point);
+		point = (struct orientation) {.x = 0, .y = x - model_point.y, .z = y - model_point.z, .w = z - model_point.w};
+		point = apply_orientation(inverse_orientation(camera_orientation), point);
+		dist = cube_distance(point.y, point.z, point.w, &norm_x, &norm_y, &norm_z);
+		if(!i || dist < best_dist){
+			output = i;
+			best_dist = dist;
+			*best_norm_x = norm_x;
+			*best_norm_y = norm_y;
+			*best_norm_z = norm_z;
+		}
+	}
+
+	return output;
 }
 
 void free_and_exit(int code){
@@ -444,7 +647,6 @@ menu *create_main_menu(){
 	screen_coord_width = (double) resolution_x*width/(resolution_y*height)*0.1;
 	screen_coord_y = 0.7;
 	screen_coord_x = 0.5 - screen_coord_width/2;
-	//menu_set_texture(output, 0, 0, 0, 1, 1, width, height, tex_data);
 	menu_set_texture(output, 0, screen_coord_x, screen_coord_y, screen_coord_width, screen_coord_height, width, height, tex_data);
 	prepare_menu(output);
 	free(tex_data);
@@ -571,17 +773,18 @@ int main(int argc, char **argv){
 	modelOrientationLocation = glGetUniformLocation(shaderProgram, "model_orientation");
 	fovconstLocation = glGetUniformLocation(shaderProgram, "fov_const");
 	stickerColorsLocation = glGetUniformLocation(shaderProgram, "sticker_colors");
+	backColorLocation = glGetUniformLocation(shaderProgram, "back_color");
 
 	glfwSwapInterval(1);
 	glEnable(GL_DEPTH_TEST);
 	glEnable(GL_TEXTURE_2D);
 	glEnable(GL_BLEND);
 	glEnable(GL_MULTISAMPLE);
+	glClearDepth(1.0);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glfwGetWindowSize(window, &resolution_x, &resolution_y);
-	do_main_menu();
 	glfwGetCursorPos(window, &last_x_pos, &last_y_pos);
 
 	while(!glfwWindowShouldClose(window)){

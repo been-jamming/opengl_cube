@@ -8,6 +8,7 @@ in vec3 model_normal;
 in vec3 world_coords;
 in vec3 normal;
 
+uniform vec3 back_color;
 uniform vec3 sticker_colors[6];
 
 vec3 get_color(){
@@ -27,7 +28,7 @@ vec3 get_color(){
 	if((abs(face_coords.x) < 0.8 && abs(face_coords.y) < 0.7) || (abs(face_coords.x) < 0.7 && abs(face_coords.y) < 0.8) || length(vec2(abs(face_coords.x) - 0.7, abs(face_coords.y) - 0.7)) < 0.1){
 		return sticker_colors[side];
 	} else {
-		return vec3(0.05);
+		return back_color;
 	}
 }
 
