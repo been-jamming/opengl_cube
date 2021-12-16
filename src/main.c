@@ -792,11 +792,11 @@ int main(int argc, char **argv){
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	glfwGetWindowSize(window, &resolution_x, &resolution_y);
 	glfwGetCursorPos(window, &last_x_pos, &last_y_pos);
+	glClearColor(0.0, 0.0, 0.0, 1.0);
+	render_cube();
 
 	while(!glfwWindowShouldClose(window)){
 		process_input(window);
-
-		glClearColor(0.0, 0.0, 0.0, 1.0);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		current_time = glfwGetTime();
 		render_cube();
