@@ -477,6 +477,12 @@ void get_pixel_position(double screen_x, double screen_y, float *x, float *y, fl
 		res_min = resolution_x;
 	}
 
+	if(screen_x < 0 || screen_x > resolution_x || screen_y < 0 || screen_y > resolution_y){
+		*x = 0;
+		*y = 0;
+		*z = 0;
+		return;
+	}
 	glReadPixels(screen_x, screen_y, 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &norm_depth);
 	norm_depth = 2*norm_depth - 1;
 	screen_x = 2*screen_x - resolution_x;
